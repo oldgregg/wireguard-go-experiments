@@ -214,7 +214,7 @@ type Handshake struct {
 	hash                      [blake2s.Size]byte       // hash value
 	chainKey                  [blake2s.Size]byte       // chain key
 	presharedKey              NoisePresharedKey        // psk
-	localEphemeral            NoisePrivateKey          // ephemeral secret key
+	localEphemeral            SoftNoisePrivateKey      // ephemeral secret key
 	localIndex                uint32                   // used to clear hash-table
 	remoteIndex               uint32                   // index for sending
 	remoteStatic              NoisePublicKey           // long term key
@@ -288,14 +288,14 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 
 	msg := MessageInitiation{
 		Type:      MessageInitiationType,
-		Ephemeral: handshake.localEphemeral.publicKey(),
+		Ephemeral: handshake.localEphemeral.PublicKey(),
 	}
 
 	handshake.mixKey(msg.Ephemeral[:])
 	handshake.mixHash(msg.Ephemeral[:])
 
 	// encrypt static key
-	ss, err := handshake.localEphemeral.sharedSecret(handshake.remoteStatic)
+	ss, err := handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +357,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	// decrypt static key
 	var peerPK NoisePublicKey
 	var key [chacha20poly1305.KeySize]byte
-	ss, err := device.staticIdentity.privateKey.sharedSecret(msg.Ephemeral)
+	ss, err := device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
 	if err != nil {
 		return nil
 	}
@@ -470,16 +470,16 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 	if err != nil {
 		return nil, err
 	}
-	msg.Ephemeral = handshake.localEphemeral.publicKey()
+	msg.Ephemeral = handshake.localEphemeral.PublicKey()
 	handshake.mixHash(msg.Ephemeral[:])
 	handshake.mixKey(msg.Ephemeral[:])
 
-	ss, err := handshake.localEphemeral.sharedSecret(handshake.remoteEphemeral)
+	ss, err := handshake.localEphemeral.SharedSecret(handshake.remoteEphemeral)
 	if err != nil {
 		return nil, err
 	}
 	handshake.mixKey(ss[:])
-	ss, err = handshake.localEphemeral.sharedSecret(handshake.remoteStatic)
+	ss, err = handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
 	if err != nil {
 		return nil, err
 	}
@@ -547,14 +547,14 @@ func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
 		mixHash(&hash, &handshake.hash, msg.Ephemeral[:])
 		mixKey(&chainKey, &handshake.chainKey, msg.Ephemeral[:])
 
-		ss, err := handshake.localEphemeral.sharedSecret(msg.Ephemeral)
+		ss, err := handshake.localEphemeral.SharedSecret(msg.Ephemeral)
 		if err != nil {
 			return false
 		}
 		mixKey(&chainKey, &chainKey, ss[:])
 		setZero(ss[:])
 
-		ss, err = device.staticIdentity.privateKey.sharedSecret(msg.Ephemeral)
+		ss, err = device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
 		if err != nil {
 			return false
 		}

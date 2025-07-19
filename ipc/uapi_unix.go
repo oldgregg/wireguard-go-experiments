@@ -32,6 +32,11 @@ func sockPath(iface string) string {
 	return fmt.Sprintf("%s/%s.sock", socketDirectory, iface)
 }
 
+func UAPIDial(name string) (net.Conn, error) {
+	socketPath := sockPath(name)
+	return net.Dial("unix", socketPath)
+}
+
 func UAPIOpen(name string) (*os.File, error) {
 	if err := os.MkdirAll(socketDirectory, 0o755); err != nil {
 		return nil, err

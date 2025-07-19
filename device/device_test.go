@@ -51,7 +51,7 @@ func uapiCfg(cfg ...string) string {
 // genConfigs generates a pair of configs that connect to each other.
 // The configs use distinct, probably-usable ports.
 func genConfigs(tb testing.TB) (cfgs, endpointCfgs [2]string) {
-	var key1, key2 NoisePrivateKey
+	var key1, key2 SoftNoisePrivateKey
 	_, err := rand.Read(key1[:])
 	if err != nil {
 		tb.Errorf("unable to generate private key random bytes: %v", err)
@@ -60,7 +60,7 @@ func genConfigs(tb testing.TB) (cfgs, endpointCfgs [2]string) {
 	if err != nil {
 		tb.Errorf("unable to generate private key random bytes: %v", err)
 	}
-	pub1, pub2 := key1.publicKey(), key2.publicKey()
+	pub1, pub2 := key1.PublicKey(), key2.PublicKey()
 
 	cfgs[0] = uapiCfg(
 		"private_key", hex.EncodeToString(key1[:]),
@@ -295,7 +295,7 @@ func TestConcurrencySafety(t *testing.T) {
 	// Change private keys concurrently with tunnel use.
 	t.Run("privateKey", func(t *testing.T) {
 		bad := uapiCfg("private_key", "7777777777777777777777777777777777777777777777777777777777777777")
-		good := uapiCfg("private_key", hex.EncodeToString(pair[0].dev.staticIdentity.privateKey[:]))
+		good := uapiCfg("private_key", hex.EncodeToString(pair[0].dev.staticIdentity.privateKey.(*SoftNoisePrivateKey)[:]))
 		// Set iters to a large number like 1000 to flush out data races quickly.
 		// Don't leave it large. That can cause logical races
 		// in which the handshake is interleaved with key changes

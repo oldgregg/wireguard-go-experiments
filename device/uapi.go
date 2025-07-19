@@ -8,6 +8,7 @@ package device
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -85,8 +86,10 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 
 		// serialize device related values
 
-		if !device.staticIdentity.privateKey.IsZero() {
-			keyf("private_key", (*[32]byte)(&device.staticIdentity.privateKey))
+		if device.staticIdentity.privateKey != nil && !device.staticIdentity.privateKey.IsZero() {
+			if sk, ok := device.staticIdentity.privateKey.(*SoftNoisePrivateKey); ok {
+				keyf("private_key", (*[32]byte)(sk))
+			} 
 		}
 
 		if device.net.port != 0 {
@@ -196,14 +199,41 @@ func (device *Device) IpcSetOperation(r io.Reader) (err error) {
 
 func (device *Device) handleDeviceLine(key, value string) error {
 	switch key {
+
+	case "yubikey":
+		ykSplit := strings.SplitN(value, " ", 3)
+		if len(ykSplit) != 3 {
+			return ipcErrorf(ipc.IpcErrorInvalid, "invalid format for yubikey IPC")
+		}
+		
+		serial, err := strconv.ParseUint(ykSplit[0], 0, 32)
+		if err != nil {
+			return ipcErrorf(ipc.IpcErrorInvalid, "invalid serial number: %w", err)
+		}
+		
+		slotId, err := strconv.ParseUint(ykSplit[1], 0, 32)
+		if err != nil {
+			return ipcErrorf(ipc.IpcErrorInvalid, "invalid slot number: %w", err)
+		}
+
+		yk, err := NewYubiKeyBackedPrivateKey(uint32(serial), uint32(slotId), ykSplit[2])
+		if err != nil {
+			return ipcErrorf(ipc.IpcErrorInvalid, "failed to decode yubikey details: %w", err)
+		}
+
+		pub := yk.PublicKey()
+		device.log.Verbosef("UAPI: public key for hardware: %s", base64.StdEncoding.EncodeToString(pub[:]))
+
+		device.SetPrivateKey(yk)
+
 	case "private_key":
-		var sk NoisePrivateKey
+		var sk SoftNoisePrivateKey
 		err := sk.FromMaybeZeroHex(value)
 		if err != nil {
 			return ipcErrorf(ipc.IpcErrorInvalid, "failed to set private_key: %w", err)
 		}
 		device.log.Verbosef("UAPI: Updating private key")
-		device.SetPrivateKey(sk)
+		device.SetPrivateKey(&sk)
 
 	case "listen_port":
 		port, err := strconv.ParseUint(value, 10, 16)

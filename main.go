@@ -8,11 +8,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
@@ -63,33 +65,24 @@ func main() {
 		return
 	}
 
-	warning()
-
 	var foreground bool
+	var serial uint
+	var slot int
+	var pin string
 	var interfaceName string
-	if len(os.Args) < 2 || len(os.Args) > 3 {
-		printUsage()
+
+	flag.BoolVar(&foreground, "foreground", false, "run application in the foreground")
+	flag.StringVar(&pin, "pin", "123456", "yubikey pin")
+	flag.UintVar(&serial, "serial", 0, "yubikey serial")
+	flag.IntVar(&slot, "slot", 0x9a, "yubikey slot") 
+	flag.Parse()
+
+	if flag.NArg() != 1 {
+		flag.PrintDefaults()
 		return
 	}
 
-	switch os.Args[1] {
-
-	case "-f", "--foreground":
-		foreground = true
-		if len(os.Args) != 3 {
-			printUsage()
-			return
-		}
-		interfaceName = os.Args[2]
-
-	default:
-		foreground = false
-		if len(os.Args) != 2 {
-			printUsage()
-			return
-		}
-		interfaceName = os.Args[1]
-	}
+	interfaceName = flag.Arg(0)
 
 	if !foreground {
 		foreground = os.Getenv(ENV_WG_PROCESS_FOREGROUND) == "1"
@@ -110,6 +103,52 @@ func main() {
 	}()
 
 	// open TUN device (or use supplied fd)
+
+	logger := device.NewLogger(
+		logLevel,
+		fmt.Sprintf("(%s) ", interfaceName),
+	)
+
+	if serial != 0 {
+		fmt.Printf("yubikey support: you may need to tap your yubikey\n")
+
+		uapiSock, err := ipc.UAPIDial(interfaceName)
+		if err != nil {
+			logger.Errorf("error dialing uapi: %w", err)
+			return
+		}
+
+		ykdetails := fmt.Sprintf("set=1\nyubikey=%d %d %s\n\n", serial, slot, pin)
+		if _, err := uapiSock.Write([]byte(ykdetails)); err != nil {
+			logger.Errorf("failed to write yubikey information to uapi: %v", err)
+			return
+		}
+
+		var b [16]byte
+		n, err := uapiSock.Read(b[:])
+		if err != nil {
+			logger.Errorf("error reading result from uapi: %v", err)
+			return
+		}
+		if n < len("errno=\n\n") {
+			logger.Errorf("response was not expected length")
+			return
+		}
+		s := strings.TrimPrefix(strings.Trim(string(b[:n]), "\n"), "errno=")
+		errcode, err := strconv.ParseInt(s, 10, 32)
+		if err != nil {
+			logger.Errorf("error parsing response from uapi: %w", err)
+			return
+		}
+		if errcode != 0 {
+			logger.Errorf("error response from uapi. check the logs.")
+			return
+		}
+
+		return
+	}
+
+	warning()
 
 	tdev, err := func() (tun.Device, error) {
 		tunFdStr := os.Getenv(ENV_WG_TUN_FD)
@@ -139,11 +178,6 @@ func main() {
 			interfaceName = realInterfaceName
 		}
 	}
-
-	logger := device.NewLogger(
-		logLevel,
-		fmt.Sprintf("(%s) ", interfaceName),
-	)
 
 	logger.Verbosef("Starting wireguard-go version %s", Version)
 

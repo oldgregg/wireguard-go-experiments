@@ -17,11 +17,22 @@ const (
 	NoisePresharedKeySize = 32
 )
 
+type NoisePrivateKeyInterface interface {
+	PublicKey() NoisePublicKey
+	SharedSecret(peer NoisePublicKey) (ss [32]byte, err error)
+	IsZero() bool
+	FromHex(src string) error
+	FromMaybeZeroHex(src string) error
+	IsHardware() bool
+}
+
+var _ NoisePrivateKeyInterface = (*SoftNoisePrivateKey)(nil)
+
 type (
-	NoisePublicKey    [NoisePublicKeySize]byte
-	NoisePrivateKey   [NoisePrivateKeySize]byte
-	NoisePresharedKey [NoisePresharedKeySize]byte
-	NoiseNonce        uint64 // padded to 12-bytes
+	NoisePublicKey      [NoisePublicKeySize]byte
+	SoftNoisePrivateKey [NoisePrivateKeySize]byte
+	NoisePresharedKey   [NoisePresharedKeySize]byte
+	NoiseNonce          uint64 // padded to 12-bytes
 )
 
 func loadExactHex(dst []byte, src string) error {
@@ -36,28 +47,28 @@ func loadExactHex(dst []byte, src string) error {
 	return nil
 }
 
-func (key NoisePrivateKey) IsZero() bool {
-	var zero NoisePrivateKey
-	return key.Equals(zero)
+func (key SoftNoisePrivateKey) IsZero() bool {
+	var zero SoftNoisePrivateKey
+	return subtle.ConstantTimeCompare(key[:], zero[:]) == 1
 }
 
-func (key NoisePrivateKey) Equals(tar NoisePrivateKey) bool {
-	return subtle.ConstantTimeCompare(key[:], tar[:]) == 1
-}
-
-func (key *NoisePrivateKey) FromHex(src string) (err error) {
+func (key *SoftNoisePrivateKey) FromHex(src string) (err error) {
 	err = loadExactHex(key[:], src)
 	key.clamp()
 	return
 }
 
-func (key *NoisePrivateKey) FromMaybeZeroHex(src string) (err error) {
+func (key *SoftNoisePrivateKey) FromMaybeZeroHex(src string) (err error) {
 	err = loadExactHex(key[:], src)
 	if key.IsZero() {
 		return
 	}
 	key.clamp()
 	return
+}
+
+func (key *SoftNoisePrivateKey) IsHardware() bool {
+	return false
 }
 
 func (key *NoisePublicKey) FromHex(src string) error {

@@ -21,11 +21,11 @@ func TestCurveWrappers(t *testing.T) {
 	sk2, err := newPrivateKey()
 	assertNil(t, err)
 
-	pk1 := sk1.publicKey()
-	pk2 := sk2.publicKey()
+	pk1 := sk1.PublicKey()
+	pk2 := sk2.PublicKey()
 
-	ss1, err1 := sk1.sharedSecret(pk2)
-	ss2, err2 := sk2.sharedSecret(pk1)
+	ss1, err1 := sk1.SharedSecret(pk2)
+	ss2, err2 := sk2.SharedSecret(pk1)
 
 	if ss1 != ss2 || err1 != nil || err2 != nil {
 		t.Fatal("Failed to compute shared secet")
@@ -40,7 +40,7 @@ func randDevice(t *testing.T) *Device {
 	tun := tuntest.NewChannelTUN()
 	logger := NewLogger(LogLevelError, "")
 	device := NewDevice(tun.TUN(), conn.NewDefaultBind(), logger)
-	device.SetPrivateKey(sk)
+	device.SetPrivateKey(&sk)
 	return device
 }
 
@@ -63,11 +63,11 @@ func TestNoiseHandshake(t *testing.T) {
 	defer dev1.Close()
 	defer dev2.Close()
 
-	peer1, err := dev2.NewPeer(dev1.staticIdentity.privateKey.publicKey())
+	peer1, err := dev2.NewPeer(dev1.staticIdentity.privateKey.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer2, err := dev1.NewPeer(dev2.staticIdentity.privateKey.publicKey())
+	peer2, err := dev1.NewPeer(dev2.staticIdentity.privateKey.PublicKey())
 	if err != nil {
 		t.Fatal(err)
 	}
