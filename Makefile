@@ -14,18 +14,18 @@ generate-version-and-build:
 	[ "$$(cat version.go 2>/dev/null)" != "$$ver" ] && \
 	echo "$$ver" > version.go && \
 	git update-index --assume-unchanged version.go || true
-	@$(MAKE) wireguard-go
+	@$(MAKE) wireguard-go-fips
 
-wireguard-go: $(wildcard *.go) $(wildcard */*.go)
-	go build -v -o "$@"
+wireguard-go-fips: $(wildcard *.go) $(wildcard */*.go)
+	GOFIPS140=v1.0.0 CGO_ENABLED=1 go build -v -tags pkcs11 -o "$@"
 
-install: wireguard-go
-	@install -v -d "$(DESTDIR)$(BINDIR)" && install -v -m 0755 "$<" "$(DESTDIR)$(BINDIR)/wireguard-go"
+install: wireguard-go-fips
+	@install -v -d "$(DESTDIR)$(BINDIR)" && install -v -m 0755 "$<" "$(DESTDIR)$(BINDIR)/wireguard-go-fips"
 
 test:
 	go test ./...
 
 clean:
-	rm -f wireguard-go
+	rm -f wireguard-go-fips
 
 .PHONY: all clean test install generate-version-and-build

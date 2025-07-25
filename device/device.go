@@ -232,8 +232,19 @@ func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
 	device.staticIdentity.Lock()
 	defer device.staticIdentity.Unlock()
 
-	if sk.Equals(device.staticIdentity.privateKey) {
-		return nil
+	// This block handles the cases where the interface is undergoing a
+	// resync, but the private key may not be changing.
+	if devicePk := device.staticIdentity.privateKey; devicePk != nil {
+
+		// When using YubiKey hardware, the incoming private key is always zero.
+		if devicePk.IsHardware() && sk.IsZero() {
+			return nil
+		}
+
+		// Check if the public keys are equal. If they aren't, this is a legitimate key swap.
+		if sk.PublicKey().Equals(devicePk.PublicKey()) {
+			return nil
+		}
 	}
 
 	device.peers.Lock()
@@ -247,7 +258,7 @@ func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
 
 	// remove peers with matching public keys
 
-	publicKey := sk.publicKey()
+	publicKey := sk.PublicKey()
 	for key, peer := range device.peers.keyMap {
 		if peer.handshake.remoteStatic.Equals(publicKey) {
 			peer.handshake.mutex.RUnlock()
@@ -267,7 +278,7 @@ func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
 	expiredPeers := make([]*Peer, 0, len(device.peers.keyMap))
 	for _, peer := range device.peers.keyMap {
 		handshake := &peer.handshake
-		handshake.precomputedStaticStatic, _ = device.staticIdentity.privateKey.sharedSecret(handshake.remoteStatic)
+		handshake.precomputedStaticStatic, _ = device.staticIdentity.privateKey.SharedSecret(handshake.remoteStatic)
 		expiredPeers = append(expiredPeers, peer)
 	}
 
@@ -321,6 +332,9 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	device.queue.encryption.wg.Add(1) // RoutineReadFromTUN
 	go device.RoutineReadFromTUN()
 	go device.RoutineTUNEventReader()
+
+	var allZero NoiseSoftPrivateKey
+	device.SetPrivateKey(&allZero)
 
 	return device
 }

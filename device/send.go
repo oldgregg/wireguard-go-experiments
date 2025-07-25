@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/conn"
@@ -438,7 +437,7 @@ func calculatePaddingSize(packetSize, mtu int) int {
  */
 func (device *Device) RoutineEncryption(id int) {
 	var paddingZeros [PaddingMultiple]byte
-	var nonce [chacha20poly1305.NonceSize]byte
+	var nonce [aes256GCMIvSize]byte
 
 	defer device.log.Verbosef("Routine: encryption worker %d - stopped", id)
 	device.log.Verbosef("Routine: encryption worker %d - started", id)

@@ -6,38 +6,41 @@
 package device
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/blake2s"
-	"golang.org/x/crypto/chacha20poly1305"
 )
+
+const aes256GCMKeySize = 32
+const aes256GCMIvSize = 12
 
 type CookieChecker struct {
 	sync.RWMutex
 	mac1 struct {
-		key [blake2s.Size]byte
+		key [sha256.Size]byte
 	}
 	mac2 struct {
-		secret        [blake2s.Size]byte
+		secret        [sha256.Size]byte
 		secretSet     time.Time
-		encryptionKey [chacha20poly1305.KeySize]byte
+		encryptionKey [aes256GCMKeySize]byte
 	}
 }
 
 type CookieGenerator struct {
 	sync.RWMutex
 	mac1 struct {
-		key [blake2s.Size]byte
+		key [sha256.Size]byte
 	}
 	mac2 struct {
-		cookie        [blake2s.Size128]byte
+		cookie        [sha256.Size]byte
 		cookieSet     time.Time
 		hasLastMAC1   bool
-		lastMAC1      [blake2s.Size128]byte
-		encryptionKey [chacha20poly1305.KeySize]byte
+		lastMAC1      [sha256.Size]byte
+		encryptionKey [aes256GCMKeySize]byte
 	}
 }
 
@@ -48,7 +51,7 @@ func (st *CookieChecker) Init(pk NoisePublicKey) {
 	// mac1 state
 
 	func() {
-		hash, _ := blake2s.New256(nil)
+		hash := sha256.New()
 		hash.Write([]byte(WGLabelMAC1))
 		hash.Write(pk[:])
 		hash.Sum(st.mac1.key[:0])
@@ -57,7 +60,7 @@ func (st *CookieChecker) Init(pk NoisePublicKey) {
 	// mac2 state
 
 	func() {
-		hash, _ := blake2s.New256(nil)
+		hash := sha256.New()
 		hash.Write([]byte(WGLabelCookie))
 		hash.Write(pk[:])
 		hash.Sum(st.mac2.encryptionKey[:0])
@@ -71,12 +74,12 @@ func (st *CookieChecker) CheckMAC1(msg []byte) bool {
 	defer st.RUnlock()
 
 	size := len(msg)
-	smac2 := size - blake2s.Size128
-	smac1 := smac2 - blake2s.Size128
+	smac2 := size - sha256.Size
+	smac1 := smac2 - sha256.Size
 
-	var mac1 [blake2s.Size128]byte
+	var mac1 [sha256.Size]byte
 
-	mac, _ := blake2s.New128(st.mac1.key[:])
+	mac := hmac.New(sha256.New, st.mac1.key[:])
 	mac.Write(msg[:smac1])
 	mac.Sum(mac1[:0])
 
@@ -93,20 +96,20 @@ func (st *CookieChecker) CheckMAC2(msg, src []byte) bool {
 
 	// derive cookie key
 
-	var cookie [blake2s.Size128]byte
+	var cookie [sha256.Size]byte
 	func() {
-		mac, _ := blake2s.New128(st.mac2.secret[:])
+		mac := hmac.New(sha256.New, st.mac2.secret[:])
 		mac.Write(src)
 		mac.Sum(cookie[:0])
 	}()
 
 	// calculate mac of packet (including mac1)
 
-	smac2 := len(msg) - blake2s.Size128
+	smac2 := len(msg) - sha256.Size
 
-	var mac2 [blake2s.Size128]byte
+	var mac2 [sha256.Size]byte
 	func() {
-		mac, _ := blake2s.New128(cookie[:])
+		mac := hmac.New(sha256.New, cookie[:])
 		mac.Write(msg[:smac2])
 		mac.Sum(mac2[:0])
 	}()
@@ -138,9 +141,9 @@ func (st *CookieChecker) CreateReply(
 
 	// derive cookie
 
-	var cookie [blake2s.Size128]byte
+	var cookie [sha256.Size]byte
 	func() {
-		mac, _ := blake2s.New128(st.mac2.secret[:])
+		mac := hmac.New(sha256.New, st.mac2.secret[:])
 		mac.Write(src)
 		mac.Sum(cookie[:0])
 	}()
@@ -149,8 +152,8 @@ func (st *CookieChecker) CreateReply(
 
 	size := len(msg)
 
-	smac2 := size - blake2s.Size128
-	smac1 := smac2 - blake2s.Size128
+	smac2 := size - sha256.Size
+	smac1 := smac2 - sha256.Size
 
 	reply := new(MessageCookieReply)
 	reply.Type = MessageCookieReplyType
@@ -162,8 +165,9 @@ func (st *CookieChecker) CreateReply(
 		return nil, err
 	}
 
-	xchapoly, _ := chacha20poly1305.NewX(st.mac2.encryptionKey[:])
-	xchapoly.Seal(reply.Cookie[:0], reply.Nonce[:], cookie[:], msg[smac1:smac2])
+	block, _ := aes.NewCipher(st.mac2.encryptionKey[:])
+	aead, _ := cipher.NewGCM(block)
+	aead.Seal(reply.Cookie[:0], reply.Nonce[:], cookie[:], msg[smac1:smac2])
 
 	st.RUnlock()
 
@@ -175,14 +179,14 @@ func (st *CookieGenerator) Init(pk NoisePublicKey) {
 	defer st.Unlock()
 
 	func() {
-		hash, _ := blake2s.New256(nil)
+		hash := sha256.New()
 		hash.Write([]byte(WGLabelMAC1))
 		hash.Write(pk[:])
 		hash.Sum(st.mac1.key[:0])
 	}()
 
 	func() {
-		hash, _ := blake2s.New256(nil)
+		hash := sha256.New()
 		hash.Write([]byte(WGLabelCookie))
 		hash.Write(pk[:])
 		hash.Sum(st.mac2.encryptionKey[:0])
@@ -199,10 +203,11 @@ func (st *CookieGenerator) ConsumeReply(msg *MessageCookieReply) bool {
 		return false
 	}
 
-	var cookie [blake2s.Size128]byte
+	var cookie [sha256.Size]byte
 
-	xchapoly, _ := chacha20poly1305.NewX(st.mac2.encryptionKey[:])
-	_, err := xchapoly.Open(cookie[:0], msg.Nonce[:], msg.Cookie[:], st.mac2.lastMAC1[:])
+	block, _ := aes.NewCipher(st.mac2.encryptionKey[:])
+	aead, _ := cipher.NewGCM(block)
+	_, err := aead.Open(cookie[:0], msg.Nonce[:], msg.Cookie[:], st.mac2.lastMAC1[:])
 	if err != nil {
 		return false
 	}
@@ -215,8 +220,8 @@ func (st *CookieGenerator) ConsumeReply(msg *MessageCookieReply) bool {
 func (st *CookieGenerator) AddMacs(msg []byte) {
 	size := len(msg)
 
-	smac2 := size - blake2s.Size128
-	smac1 := smac2 - blake2s.Size128
+	smac2 := size - sha256.Size
+	smac1 := smac2 - sha256.Size
 
 	mac1 := msg[smac1:smac2]
 	mac2 := msg[smac2:]
@@ -227,7 +232,7 @@ func (st *CookieGenerator) AddMacs(msg []byte) {
 	// set mac1
 
 	func() {
-		mac, _ := blake2s.New128(st.mac1.key[:])
+		mac := hmac.New(sha256.New, st.mac1.key[:])
 		mac.Write(msg[:smac1])
 		mac.Sum(mac1[:0])
 	}()
@@ -241,7 +246,7 @@ func (st *CookieGenerator) AddMacs(msg []byte) {
 	}
 
 	func() {
-		mac, _ := blake2s.New128(st.mac2.cookie[:])
+		mac := hmac.New(sha256.New, st.mac2.cookie[:])
 		mac.Write(msg[:smac2])
 		mac.Sum(mac2[:0])
 	}()

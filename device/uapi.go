@@ -8,6 +8,7 @@ package device
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -59,7 +60,7 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 		fmt.Fprintf(buf, format, args...)
 		buf.WriteByte('\n')
 	}
-	keyf := func(prefix string, key *[32]byte) {
+	keyf := func(prefix string, key []byte) {
 		buf.Grow(len(key)*2 + 2 + len(prefix))
 		buf.WriteString(prefix)
 		buf.WriteByte('=')
@@ -84,9 +85,10 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 		defer device.peers.RUnlock()
 
 		// serialize device related values
-
-		if !device.staticIdentity.privateKey.IsZero() {
-			keyf("private_key", (*[32]byte)(&device.staticIdentity.privateKey))
+		if pk := device.staticIdentity.privateKey; pk != nil && !pk.IsZero() && !pk.IsHardware() {
+			if sk, ok := pk.(*NoiseSoftPrivateKey); ok {
+				keyf("private_key", sk[:])
+			}
 		}
 
 		if device.net.port != 0 {
@@ -100,8 +102,8 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 		for _, peer := range device.peers.keyMap {
 			// Serialize peer state.
 			peer.handshake.mutex.RLock()
-			keyf("public_key", (*[32]byte)(&peer.handshake.remoteStatic))
-			keyf("preshared_key", (*[32]byte)(&peer.handshake.presharedKey))
+			keyf("public_key", peer.handshake.remoteStatic[:])
+			keyf("preshared_key", peer.handshake.presharedKey[:])
 			peer.handshake.mutex.RUnlock()
 			sendf("protocol_version=1")
 			peer.endpoint.Lock()
@@ -197,14 +199,17 @@ func (device *Device) IpcSetOperation(r io.Reader) (err error) {
 func (device *Device) handleDeviceLine(key, value string) error {
 	switch key {
 	case "private_key":
-		var sk NoisePrivateKey
+		var sk NoiseSoftPrivateKey
 		err := sk.FromMaybeZeroHex(value)
 		if err != nil {
 			return ipcErrorf(ipc.IpcErrorInvalid, "failed to set private_key: %w", err)
 		}
 		device.log.Verbosef("UAPI: Updating private key")
-		device.SetPrivateKey(sk)
-
+		device.SetPrivateKey(&sk)
+	case "pkcs11_key":
+		if err := handlePkcs11Key(device, value); err != nil {
+			return ipcErrorf(ipc.IpcErrorInvalid, "failed to set pkcs11_key: %w", err)
+		}
 	case "listen_port":
 		port, err := strconv.ParseUint(value, 10, 16)
 		if err != nil {
@@ -273,9 +278,14 @@ func (peer *ipcSetPeer) handlePostConfig() {
 
 func (device *Device) handlePublicKeyLine(peer *ipcSetPeer, value string) error {
 	// Load/create the peer we are configuring.
-	var publicKey NoisePublicKey
-	err := publicKey.FromHex(value)
+
+	b, err := hex.DecodeString(value)
 	if err != nil {
+		return err
+	}
+
+	var publicKey NoisePublicKey
+	if err := publicKey.FromHex(hex.EncodeToString(b)); err != nil {
 		return ipcErrorf(ipc.IpcErrorInvalid, "failed to get peer by public key: %w", err)
 	}
 
