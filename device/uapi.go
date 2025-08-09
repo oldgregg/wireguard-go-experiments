@@ -8,6 +8,7 @@ package device
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,7 +20,11 @@ import (
 	"sync"
 	"time"
 
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 	"golang.zx2c4.com/wireguard/ipc"
+
+	_ "golang.zx2c4.com/wireguard/device/keyproviders"
+	"golang.zx2c4.com/wireguard/device/keyproviders/registry"
 )
 
 type IPCError struct {
@@ -86,7 +91,7 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 
 		// serialize device related values
 		if pk := device.staticIdentity.privateKey; pk != nil && !pk.IsZero() && !pk.IsHardware() {
-			if sk, ok := pk.(*NoiseSoftPrivateKey); ok {
+			if sk, ok := pk.(*nt.NoiseSoftPrivateKey); ok {
 				keyf("private_key", sk[:])
 			}
 		}
@@ -199,7 +204,7 @@ func (device *Device) IpcSetOperation(r io.Reader) (err error) {
 func (device *Device) handleDeviceLine(key, value string) error {
 	switch key {
 	case "private_key":
-		var sk NoiseSoftPrivateKey
+		var sk nt.NoiseSoftPrivateKey
 		err := sk.FromMaybeZeroHex(value)
 		if err != nil {
 			return ipcErrorf(ipc.IpcErrorInvalid, "failed to set private_key: %w", err)
@@ -207,9 +212,14 @@ func (device *Device) handleDeviceLine(key, value string) error {
 		device.log.Verbosef("UAPI: Updating private key")
 		device.SetPrivateKey(&sk)
 	case "pkcs11_key":
-		if err := handlePkcs11Key(device, value); err != nil {
+		sk, err := registry.HandleHardwareKey(value)
+		if err != nil {
 			return ipcErrorf(ipc.IpcErrorInvalid, "failed to set pkcs11_key: %w", err)
 		}
+		pub := sk.PublicKey()
+		device.log.Verbosef("UAPI: handling hardware-bound private key")
+		device.log.Verbosef("UAPI: hardware-bound public key: %s", base64.StdEncoding.EncodeToString(pub[:]))
+		device.SetPrivateKey(sk)
 	case "listen_port":
 		port, err := strconv.ParseUint(value, 10, 16)
 		if err != nil {
@@ -284,7 +294,7 @@ func (device *Device) handlePublicKeyLine(peer *ipcSetPeer, value string) error 
 		return err
 	}
 
-	var publicKey NoisePublicKey
+	var publicKey nt.NoisePublicKey
 	if err := publicKey.FromHex(hex.EncodeToString(b)); err != nil {
 		return ipcErrorf(ipc.IpcErrorInvalid, "failed to get peer by public key: %w", err)
 	}

@@ -3,6 +3,7 @@ module golang.zx2c4.com/wireguard
 go 1.24.4
 
 require (
+	github.com/google/go-tpm v0.9.5
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/net v0.39.0

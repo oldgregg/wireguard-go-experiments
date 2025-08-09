@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 	"golang.zx2c4.com/wireguard/ratelimiter"
 	"golang.zx2c4.com/wireguard/rwcancel"
 	"golang.zx2c4.com/wireguard/tun"
@@ -49,13 +50,13 @@ type Device struct {
 
 	staticIdentity struct {
 		sync.RWMutex
-		privateKey NoisePrivateKey
-		publicKey  NoisePublicKey
+		privateKey nt.NoisePrivateKey
+		publicKey  nt.NoisePublicKey
 	}
 
 	peers struct {
 		sync.RWMutex // protects keyMap
-		keyMap       map[NoisePublicKey]*Peer
+		keyMap       map[nt.NoisePublicKey]*Peer
 	}
 
 	rate struct {
@@ -126,7 +127,7 @@ func (device *Device) isUp() bool {
 }
 
 // Must hold device.peers.Lock()
-func removePeerLocked(device *Device, peer *Peer, key NoisePublicKey) {
+func removePeerLocked(device *Device, peer *Peer, key nt.NoisePublicKey) {
 	// stop routing and processing of packets
 	device.allowedips.RemoveByPeer(peer)
 	peer.Stop()
@@ -226,7 +227,7 @@ func (device *Device) IsUnderLoad() bool {
 	return device.rate.underLoadUntil.Load() > now.UnixNano()
 }
 
-func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
+func (device *Device) SetPrivateKey(sk nt.NoisePrivateKey) error {
 	// lock required resources
 
 	device.staticIdentity.Lock()
@@ -305,7 +306,7 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 		mtu = DefaultMTU
 	}
 	device.tun.mtu.Store(int32(mtu))
-	device.peers.keyMap = make(map[NoisePublicKey]*Peer)
+	device.peers.keyMap = make(map[nt.NoisePublicKey]*Peer)
 	device.rate.limiter.Init()
 	device.indexTable.Init()
 
@@ -333,7 +334,7 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	go device.RoutineReadFromTUN()
 	go device.RoutineTUNEventReader()
 
-	var allZero NoiseSoftPrivateKey
+	var allZero nt.NoiseSoftPrivateKey
 	device.SetPrivateKey(&allZero)
 
 	return device
@@ -352,14 +353,14 @@ func (device *Device) BatchSize() int {
 	return size
 }
 
-func (device *Device) LookupPeer(pk NoisePublicKey) *Peer {
+func (device *Device) LookupPeer(pk nt.NoisePublicKey) *Peer {
 	device.peers.RLock()
 	defer device.peers.RUnlock()
 
 	return device.peers.keyMap[pk]
 }
 
-func (device *Device) RemovePeer(key NoisePublicKey) {
+func (device *Device) RemovePeer(key nt.NoisePublicKey) {
 	device.peers.Lock()
 	defer device.peers.Unlock()
 	// stop peer and remove from routing
@@ -378,7 +379,7 @@ func (device *Device) RemoveAllPeers() {
 		removePeerLocked(device, peer, key)
 	}
 
-	device.peers.keyMap = make(map[NoisePublicKey]*Peer)
+	device.peers.keyMap = make(map[nt.NoisePublicKey]*Peer)
 }
 
 func (device *Device) Close() {

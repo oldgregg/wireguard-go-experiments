@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 	"golang.zx2c4.com/wireguard/tai64n"
 )
 
@@ -84,8 +85,8 @@ const (
 type MessageInitiation struct {
 	Type      uint32
 	Sender    uint32
-	Ephemeral NoisePublicKey
-	Static    [NoisePublicKeySize + aes.BlockSize]byte
+	Ephemeral nt.NoisePublicKey
+	Static    [nt.NoisePublicKeySize + aes.BlockSize]byte
 	Timestamp [tai64n.TimestampSize + aes.BlockSize]byte
 	MAC1      [sha256.Size]byte
 	MAC2      [sha256.Size]byte
@@ -95,7 +96,7 @@ type MessageResponse struct {
 	Type      uint32
 	Sender    uint32
 	Receiver  uint32
-	Ephemeral NoisePublicKey
+	Ephemeral nt.NoisePublicKey
 	Empty     [aes.BlockSize]byte
 	MAC1      [sha256.Size]byte
 	MAC2      [sha256.Size]byte
@@ -210,15 +211,15 @@ func (msg *MessageCookieReply) marshal(b []byte) error {
 type Handshake struct {
 	state                     handshakeState
 	mutex                     sync.RWMutex
-	hash                      [sha256.Size]byte           // hash value
-	chainKey                  [sha256.Size]byte           // chain key
-	presharedKey              NoisePresharedKey           // psk
-	localEphemeral            NoiseSoftPrivateKey         // ephemeral secret key
-	localIndex                uint32                      // used to clear hash-table
-	remoteIndex               uint32                      // index for sending
-	remoteStatic              NoisePublicKey              // long term key
-	remoteEphemeral           NoisePublicKey              // ephemeral public key
-	precomputedStaticStatic   [NoisePresharedKeySize]byte // precomputed shared secret
+	hash                      [sha256.Size]byte              // hash value
+	chainKey                  [sha256.Size]byte              // chain key
+	presharedKey              nt.NoisePresharedKey           // psk
+	localEphemeral            nt.NoiseSoftPrivateKey         // ephemeral secret key
+	localIndex                uint32                         // used to clear hash-table
+	remoteIndex               uint32                         // index for sending
+	remoteStatic              nt.NoisePublicKey              // long term key
+	remoteEphemeral           nt.NoisePublicKey              // ephemeral public key
+	precomputedStaticStatic   [nt.NoisePresharedKeySize]byte // precomputed shared secret
 	lastTimestamp             tai64n.Timestamp
 	lastInitiationConsumption time.Time
 	lastSentHandshake         time.Time
@@ -265,6 +266,8 @@ func init() {
 	InitialChainKey = sha256.Sum256([]byte(NoiseConstruction))
 	mixHash(&InitialHash, &InitialChainKey, []byte(WGIdentifier))
 }
+
+var errInvalidPublicKey = errors.New("invalid public key")
 
 func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, error) {
 	device.staticIdentity.RLock()
@@ -357,7 +360,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	mixKey(&chainKey, &InitialChainKey, msg.Ephemeral[:])
 
 	// decrypt static key
-	var peerPK NoisePublicKey
+	var peerPK nt.NoisePublicKey
 	var key [aes256GCMKeySize]byte
 	ss, err := device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
 	if err != nil {

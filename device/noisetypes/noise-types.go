@@ -1,9 +1,4 @@
-/* SPDX-License-Identifier: MIT
- *
- * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
- */
-
-package device
+package nt
 
 import (
 	"bytes"
@@ -26,8 +21,6 @@ type (
 	NoiseNonce          uint64 // padded to 12-bytes
 )
 
-var _ NoisePrivateKey = (*NoiseSoftPrivateKey)(nil)
-
 type NoisePrivateKey interface {
 	PublicKey() NoisePublicKey
 	SharedSecret(peer NoisePublicKey) (ss [32]byte, err error)
@@ -48,6 +41,36 @@ func loadExactHex(dst []byte, src string) error {
 	copy(dst, slice)
 	return nil
 }
+
+func (key *NoisePublicKey) FromHex(src string) error {
+	b, err := hex.DecodeString(src)
+	if err != nil {
+		return err
+	}
+
+	pub, err := ecdh.P256().NewPublicKey(b)
+	if err != nil {
+		return err
+	}
+
+	copy(key[:], pub.Bytes())
+	return nil
+}
+
+func (key NoisePublicKey) IsZero() bool {
+	var zero NoisePublicKey
+	return key.Equals(zero)
+}
+
+func (key NoisePublicKey) Equals(tar NoisePublicKey) bool {
+	return subtle.ConstantTimeCompare(key[:], tar[:]) == 1
+}
+
+func (key *NoisePresharedKey) FromHex(src string) error {
+	return loadExactHex(key[:], src)
+}
+
+var _ NoisePrivateKey = (*NoiseSoftPrivateKey)(nil)
 
 func (key NoiseSoftPrivateKey) IsZero() bool {
 	var zero NoiseSoftPrivateKey
@@ -98,30 +121,41 @@ func (key NoiseSoftPrivateKey) IsHardware() bool {
 	return false
 }
 
-func (key *NoisePublicKey) FromHex(src string) error {
-	b, err := hex.DecodeString(src)
-	if err != nil {
-		return err
+func isZero(val []byte) bool {
+	acc := 1
+	for _, b := range val {
+		acc &= subtle.ConstantTimeByteEq(b, 0)
+	}
+	return acc == 1
+}
+
+func (sk *NoiseSoftPrivateKey) PublicKey() NoisePublicKey {
+
+	if sk.IsZero() {
+		return NoisePublicKey{}
 	}
 
-	pub, err := ecdh.P256().NewPublicKey(b)
+	pk, _ := ecdh.P256().NewPrivateKey(sk[:])
+	return NoisePublicKey(pk.PublicKey().Bytes())
+}
+
+var errInvalidPublicKey = errors.New("invalid public key")
+
+func (sk *NoiseSoftPrivateKey) SharedSecret(pub NoisePublicKey) ([NoisePresharedKeySize]byte, error) {
+
+	peerPub, err := ecdh.P256().NewPublicKey(pub[:])
 	if err != nil {
-		return err
+		return [NoisePresharedKeySize]byte{}, errInvalidPublicKey
 	}
 
-	copy(key[:], pub.Bytes())
-	return nil
-}
+	pk, _ := ecdh.P256().NewPrivateKey(sk[:])
 
-func (key NoisePublicKey) IsZero() bool {
-	var zero NoisePublicKey
-	return key.Equals(zero)
-}
+	ss, err := pk.ECDH(peerPub)
+	if err != nil {
+		return [NoisePresharedKeySize]byte{}, errInvalidPublicKey
+	}
 
-func (key NoisePublicKey) Equals(tar NoisePublicKey) bool {
-	return subtle.ConstantTimeCompare(key[:], tar[:]) == 1
-}
-
-func (key *NoisePresharedKey) FromHex(src string) error {
-	return loadExactHex(key[:], src)
+	var ret [NoisePresharedKeySize]byte
+	copy(ret[:], ss[:NoisePresharedKeySize])
+	return ret, nil
 }

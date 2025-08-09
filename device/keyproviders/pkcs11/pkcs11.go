@@ -1,7 +1,7 @@
 //go:build pkcs11
 // +build pkcs11
 
-package device
+package kppkcs11
 
 import (
 	"crypto/ecdh"
@@ -14,9 +14,15 @@ import (
 	"sync"
 
 	"github.com/miekg/pkcs11"
+	reg "golang.zx2c4.com/wireguard/device/keyproviders/registry"
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 )
 
-var _ NoisePrivateKey = (*pkcs11BackedPrivateKey)(nil)
+func init() {
+	reg.RegisterHardwareKeyProvider("pkcs11", NewPkcs11BackedPrivateKey)
+}
+
+var _ nt.NoisePrivateKey = (*pkcs11BackedPrivateKey)(nil)
 
 var ErrUnsupported = fmt.Errorf("unsupported operation")
 var ErrNotFound = fmt.Errorf("not found")
@@ -44,7 +50,7 @@ func (pk *wrappedPrivateKey) Close() error {
 	return nil
 }
 
-func NewPkcs11BackedPrivateKey(pkcs11Uri string) (NoisePrivateKey, error) {
+func NewPkcs11BackedPrivateKey(pkcs11Uri string) (nt.NoisePrivateKey, error) {
 
 	dat, err := parsePkcs11Uri(pkcs11Uri)
 	if err != nil {
@@ -177,11 +183,11 @@ func getKeyCommon(cfg *pkcs11Data) (*wrappedPrivateKey, error) {
 	}, nil
 }
 
-func (k *pkcs11BackedPrivateKey) PublicKey() NoisePublicKey {
-	return NoisePublicKey(k.pubBytes)
+func (k *pkcs11BackedPrivateKey) PublicKey() nt.NoisePublicKey {
+	return nt.NoisePublicKey(k.pubBytes)
 }
 
-func (k *pkcs11BackedPrivateKey) SharedSecret(peer NoisePublicKey) ([32]byte, error) {
+func (k *pkcs11BackedPrivateKey) SharedSecret(peer nt.NoisePublicKey) ([32]byte, error) {
 
 	pk, err := getKeyCommon(k.cfg)
 	if err != nil {

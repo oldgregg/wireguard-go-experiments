@@ -13,6 +13,8 @@ import (
 	"crypto/sha256"
 	"sync"
 	"time"
+
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 )
 
 const aes256GCMKeySize = 32
@@ -44,7 +46,7 @@ type CookieGenerator struct {
 	}
 }
 
-func (st *CookieChecker) Init(pk NoisePublicKey) {
+func (st *CookieChecker) Init(pk nt.NoisePublicKey) {
 	st.Lock()
 	defer st.Unlock()
 
@@ -174,7 +176,7 @@ func (st *CookieChecker) CreateReply(
 	return reply, nil
 }
 
-func (st *CookieGenerator) Init(pk NoisePublicKey) {
+func (st *CookieGenerator) Init(pk nt.NoisePublicKey) {
 	st.Lock()
 	defer st.Unlock()
 

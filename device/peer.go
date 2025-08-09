@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 )
 
 type Peer struct {
@@ -58,7 +59,7 @@ type Peer struct {
 	persistentKeepaliveInterval atomic.Uint32
 }
 
-func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
+func (device *Device) NewPeer(pk nt.NoisePublicKey) (*Peer, error) {
 	if device.isClosed() {
 		return nil, errors.New("device closed")
 	}

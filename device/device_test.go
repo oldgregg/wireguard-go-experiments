@@ -22,6 +22,7 @@ import (
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/conn/bindtest"
+	nt "golang.zx2c4.com/wireguard/device/noisetypes"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/tuntest"
 )
@@ -277,7 +278,7 @@ func TestConcurrencySafety(t *testing.T) {
 
 	// Change persistent_keepalive_interval concurrently with tunnel use.
 	t.Run("persistentKeepaliveInterval", func(t *testing.T) {
-		var pub NoisePublicKey
+		var pub nt.NoisePublicKey
 		for key := range pair[0].dev.peers.keyMap {
 			pub = key
 			break
@@ -294,7 +295,7 @@ func TestConcurrencySafety(t *testing.T) {
 	// Change private keys concurrently with tunnel use.
 	t.Run("privateKey", func(t *testing.T) {
 		bad := uapiCfg("private_key", "7777777777777777777777777777777777777777777777777777777777777777")
-		good := uapiCfg("private_key", hex.EncodeToString(pair[0].dev.staticIdentity.privateKey.(*NoiseSoftPrivateKey)[:]))
+		good := uapiCfg("private_key", hex.EncodeToString(pair[0].dev.staticIdentity.privateKey.(*nt.NoiseSoftPrivateKey)[:]))
 		// Set iters to a large number like 1000 to flush out data races quickly.
 		// Don't leave it large. That can cause logical races
 		// in which the handshake is interleaved with key changes
